@@ -1,0 +1,192 @@
+services:
+  # ============================================================================
+  # 1. MySQL Database Service (with persistent named volume)
+  # ============================================================================
+  mysql:
+    image: mysql:8.0
+    container_name: ai-reviewer-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:-rootpassword}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-ai_code_reviewer}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    networks:
+      - ai-reviewer-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ============================================================================
+  # 2. MongoDB Service (with persistent named volume)
+  # ============================================================================
+  mongo:
+    image: mongo:7.0
+    container_name: ai-reviewer-mongo
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    networks:
+      - ai-reviewer-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ============================================================================
+  # 3. Redis Cache & Job Queue Service
+  # ============================================================================
+  redis:
+    image: redis:7-alpine
+    container_name: ai-reviewer-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ai-reviewer-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # ============================================================================
+  # 4. Agent Service (Python 3.11 FastAPI / LangGraph, Port 8000)
+  # ============================================================================
+  agent-service:
+    build:
+      context: ./agent-service
+      dockerfile: Dockerfile
+    container_name: ai-reviewer-agent-service
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_MODEL=${GEMINI_MODEL:-gemini-2.5-flash}
+      - REPO_ROOT=/app
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:5000,http://client:3000
+      - MONGO_URI=mongodb://mongo:27017/ai_reviewer
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - ai-reviewer-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================================================
+  # 5. Express Server (Port 5000, depends_on mysql + mongo + redis + agent-service)
+  # ============================================================================
+  server:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: ai-reviewer-server
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - FRONTEND_URL=http://localhost:3000
+      - FASTAPI_URL=http://agent-service:8000
+      - REDIS_URL=redis://redis:6379
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=${MYSQL_USER:-root}
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-rootpassword}
+      - MYSQL_DATABASE=${MYSQL_DATABASE:-ai_code_reviewer}
+      - MONGO_URI=mongodb://mongo:27017/ai_reviewer
+      - JWT_SECRET=${JWT_SECRET:-default_jwt_secret_change_in_production}
+      - JWT_EXPIRES_IN=7d
+      - SESSION_SECRET=${SESSION_SECRET:-default_session_secret}
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID:-}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET:-}
+      - GITHUB_CALLBACK_URL=${GITHUB_CALLBACK_URL:-http://localhost:5000/api/auth/github/callback}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      agent-service:
+        condition: service_healthy
+    networks:
+      - ai-reviewer-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ============================================================================
+  # 6. Client Frontend (Port 3000, depends_on server)
+  # ============================================================================
+  client:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://localhost:5000
+        - VITE_API_URL=http://localhost:5000
+    container_name: ai-reviewer-client
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:5000
+      - VITE_API_URL=http://localhost:5000
+    depends_on:
+      - server
+    networks:
+      - ai-reviewer-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+# ==============================================================================
+# Persistent Named Volumes
+# ==============================================================================
+volumes:
+  mysql_data:
+    name: ai_reviewer_mysql_data
+  mongo_data:
+    name: ai_reviewer_mongo_data
+  redis_data:
+    name: ai_reviewer_redis_data
+
+# ==============================================================================
+# Shared Bridge Network
+# ==============================================================================
+networks:
+  ai-reviewer-network:
+    name: ai_reviewer_network
+    driver: bridge

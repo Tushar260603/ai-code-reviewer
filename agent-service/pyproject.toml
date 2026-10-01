@@ -1,0 +1,42 @@
+[project]
+name = "agent-service"
+version = "0.1.0"
+description = "Add your description here"
+authors = [
+    { name = "Tushar260603", email = "143540010+Tushar260603@users.noreply.github.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=1.8.0",
+    "fastapi>=0.141.1",
+    "gitpython>=3.1.62",
+    "ipykernel>=7.3.0",
+    "langchain>=0.3.0",
+    "langchain-core>=0.3.0",
+    "langchain-google-genai>=2.0.0",
+    "langgraph>=0.2.0",
+    "pydantic>=2.13.5",
+    "pygithub>=2.10.0",
+    "python-dotenv>=1.2.3",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+agent-service = "agent_service:main"
+
+[build-system]
+requires = ["uv_build>=0.12.17,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+markers = [
+    "integration: marks tests that call real external APIs (deselect with -m 'not integration')",
+]

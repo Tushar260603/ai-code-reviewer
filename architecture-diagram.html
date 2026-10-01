@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Code Reviewer - Architecture & Execution Flow</title>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #0f172a;
+      color: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 30px 20px;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 25px;
+    }
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: #38bdf8;
+      margin-bottom: 8px;
+    }
+    p {
+      color: #94a3b8;
+      font-size: 15px;
+    }
+    .actions {
+      display: flex;
+      gap: 14px;
+      margin-bottom: 25px;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      border: none;
+      padding: 11px 22px;
+      font-size: 14px;
+      font-weight: 600;
+      border-radius: 8px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+    button:hover {
+      background: #1d4ed8;
+      transform: translateY(-1px);
+    }
+    button.svg-btn {
+      background: #059669;
+      box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+    }
+    button.svg-btn:hover {
+      background: #047857;
+    }
+    .diagram-container {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 14px;
+      padding: 25px;
+      max-width: 1200px;
+      width: 100%;
+      overflow-x: auto;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+      display: flex;
+      justify-content: center;
+    }
+    .mermaid {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+    footer {
+      margin-top: 30px;
+      color: #64748b;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>AI Code Reviewer - End-to-End Architecture Flow</h1>
+    <p>Complete execution flow between Next.js, Node.js, FastAPI, Multi-Agent Supervisors, Gemini LLM & GitHub</p>
+  </header>
+
+  <div class="actions">
+    <button id="downloadPng">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download Image (PNG)
+    </button>
+    <button id="downloadSvg" class="svg-btn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Download Vector (SVG)
+    </button>
+  </div>
+
+  <div class="diagram-container" id="diagramWrapper">
+    <pre class="mermaid" id="mermaidDiagram">
+flowchart TD
+    subgraph ClientLayer["🖥️ Frontend (Port 3000)"]
+        UI["Next.js Dashboard\n(/dashboard)"]
+    end
+
+    subgraph BackendLayer["⚙️ Backend Server (Port 5000)"]
+        Express["Express Server\n(src/index.js)"]
+        ReviewsCtrl["Reviews Controller\n(reviews.controller.js)"]
+        Worker["Review Worker\n(queue/reviewWorker.js)"]
+        Webhook["Webhook Controller\n(webhook.controller.js)"]
+    end
+
+    subgraph DatabaseLayer["💾 Database (Port 3306)"]
+        MySQL[("MySQL Database\n(aireview)\n- pull_requests\n- reviews\n- findings")]
+    end
+
+    subgraph ExternalServices["🌐 External Integrations"]
+        GitHub["GitHub API / PR\n(Diffs, Commits, Comments)"]
+        Gemini["Google Gemini API\n(gemini-3.1-flash-lite)"]
+    end
+
+    subgraph AgentLayer["🤖 AI Agent Service (Port 8000)"]
+        FastAPI["FastAPI App\n(app/main.py)"]
+        Supervisor["ReviewSupervisor\n(app/agents/supervisor.py)"]
+        SecAgent["SecurityAgent\n(Secrets, Injection, Auth)"]
+        StyleAgent["StyleAgent\n(Naming, Cleanliness, Standards)"]
+        LogicAgent["LogicAgent\n(Bugs, Edge Cases, Performance)"]
+    end
+
+    %% Manual Trigger Flow
+    UI -->|"1. POST /api/reviews/trigger"| ReviewsCtrl
+    ReviewsCtrl -->|"2. Responds 202 Accepted (Instant)"| UI
+    ReviewsCtrl -->|"3. Dispatches job in background"| Worker
+
+    %% Webhook Flow
+    GitHub -.->|"Alternative: Webhook PR Opened/Sync"| Webhook
+    Webhook -.->|"Queue review job"| Worker
+
+    %% Worker Execution
+    Worker -->|"4. Fetches PR diff & metadata"| GitHub
+    Worker -->|"5. POST /review with PR diff"| FastAPI
+
+    %% Agent Pipeline
+    FastAPI --> Supervisor
+    Supervisor -->|"6a. Analyze security"| SecAgent
+    Supervisor -->|"6b. Analyze style"| StyleAgent
+    Supervisor -->|"6c. Analyze logic"| LogicAgent
+
+    SecAgent -->|"7a. Structured prompt"| Gemini
+    StyleAgent -->|"7b. Structured prompt"| Gemini
+    LogicAgent -->|"7c. Structured prompt"| Gemini
+
+    Gemini -->|"8. Return findings JSON"| Supervisor
+    Supervisor -->|"9. Deduplicate & calculate verdict"| FastAPI
+    FastAPI -->|"10. Return ReviewResult"| Worker
+
+    %% Persistence & UI Update
+    Worker -->|"11. Save review & findings"| MySQL
+    Worker -->|"12. Post AI review comment"| GitHub
+    UI -->|"13. Auto-poll GET /api/reviews (every 2.5s)"| Express
+    Express -->|"14. Read latest results"| MySQL
+    Express -->|"15. Return findings & verdict"| UI
+    </pre>
+  </div>
+
+  <footer>
+    Double click or open directly in your web browser: architecture-diagram.html
+  </footer>
+
+  <script>
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'dark',
+      themeVariables: {
+        darkMode: true,
+        background: '#1e293b',
+        primaryColor: '#1e40af',
+        primaryTextColor: '#f8fafc',
+        primaryBorderColor: '#60a5fa',
+        lineColor: '#38bdf8',
+        secondaryColor: '#0f766e',
+        tertiaryColor: '#334155'
+      }
+    });
+
+    // Helper: Download SVG
+    document.getElementById('downloadSvg').addEventListener('click', () => {
+      const svg = document.querySelector('#diagramWrapper svg');
+      if (!svg) return alert('Diagram not ready yet');
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+      if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+      const blob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'ai-reviewer-architecture.svg';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    });
+
+    // Helper: Download PNG
+    document.getElementById('downloadPng').addEventListener('click', () => {
+      const svg = document.querySelector('#diagramWrapper svg');
+      if (!svg) return alert('Diagram not ready yet');
+      const serializer = new XMLSerializer();
+      let source = serializer.serializeToString(svg);
+      if(!source.match(/^<svg[^>]+xmlns="http\:\/\/www\.w3\.org\/2000\/svg"/)){
+        source = source.replace(/^<svg/, '<svg xmlns="http://www.w3.org/2000/svg"');
+      }
+      
+      const svgBlob = new Blob([source], { type: 'image/svg+xml;charset=utf-8' });
+      const URLObj = window.URL || window.webkitURL || window;
+      const blobURL = URLObj.createObjectURL(svgBlob);
+      
+      const image = new Image();
+      image.onload = () => {
+        const scale = 2; // High Resolution
+        const canvas = document.createElement('canvas');
+        canvas.width = svg.getBoundingClientRect().width * scale;
+        canvas.height = svg.getBoundingClientRect().height * scale;
+        const context = canvas.getContext('2d');
+        context.fillStyle = '#1e293b';
+        context.fillRect(0, 0, canvas.width, canvas.height);
+        context.scale(scale, scale);
+        context.drawImage(image, 0, 0);
+        
+        const a = document.createElement('a');
+        a.download = 'ai-reviewer-architecture.png';
+        a.href = canvas.toDataURL('image/png');
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      };
+      image.src = blobURL;
+    });
+  </script>
+</body>
+</html>
